@@ -13,7 +13,7 @@ from utils.checkpoints import CheckpointCompatibilityError
 with st.sidebar:
     checkpoint_text = st.text_input(
         "模型检查点",
-        value="checkpoints/resnet18/best_model.pth",
+        value="outputs/resnet18-main/best_model.pth",
         help="填写训练生成的 best_model.pth 路径。",
         key="recognition_checkpoint",
     )

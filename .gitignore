@@ -10,3 +10,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+.superpowers/
+*.log
+*.pth
+*.pt

@@ -8,7 +8,7 @@ from app import load_analysis_artifacts
 with st.sidebar:
     output_text = st.text_input(
         "评估结果目录",
-        value="outputs/evaluation",
+        value="outputs/evaluation/resnet18-main",
         help="目录内可包含 metrics.json、comparison.csv、曲线、混淆矩阵和 errors.csv。",
         key="analysis_output_dir",
     )
