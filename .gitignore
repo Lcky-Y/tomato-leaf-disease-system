@@ -1,1 +1,13 @@
 .worktrees/
+.venv/
+venv/
+data/
+checkpoints/
+outputs/
+.streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
