@@ -62,4 +62,3 @@ class TrainingConfig:
     finetune_learning_rate: float = 1e-4
     weight_decay: float = 1e-4
     early_stopping_patience: int = 5
-

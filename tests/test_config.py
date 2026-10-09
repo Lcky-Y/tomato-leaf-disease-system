@@ -59,4 +59,3 @@ def test_configuration_objects_are_frozen():
 
     with pytest.raises(FrozenInstanceError):
         config.seed = 7
-
