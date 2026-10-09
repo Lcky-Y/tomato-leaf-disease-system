@@ -127,7 +127,7 @@ ResNet18 迁移学习：
   --device auto
 ```
 
-评估只读取 `test` 切分，且拒绝写入非空输出目录。它会生成 `metrics.json`、JSON/CSV 分类报告、原始与归一化混淆矩阵、`errors.csv` 和 `confusion_pairs.csv`。
+评估只读取 `test` 切分，且拒绝写入非空输出目录。它会生成 `metrics.json`、JSON/CSV 分类报告、原始与归一化混淆矩阵、`errors.csv`、`correct_samples.csv` 和 `confusion_pairs.csv`。指标中还记录测试切分指纹与样本数；模型对比会拒绝混用不同测试切分。CPU 延迟采用预热后的 batch-size-1 单图测量，若使用 CUDA 评估则另记 GPU 单图延迟。
 
 生成两模型对比表：
 
@@ -151,7 +151,7 @@ ResNet18 迁移学习：
 & '.\.venv\Scripts\python.exe' -m streamlit run app.py
 ```
 
-在“叶片识别”页填写 `outputs\resnet18-main\best_model.pth`，上传 JPG、JPEG 或 PNG 图片。在“模型分析”页填写某个独立评估目录，例如 `outputs\evaluation\resnet18-main`。训练曲线位于训练运行目录；评估指标与混淆矩阵位于评估目录，页面会对缺失的可选产物逐项提示。
+在“叶片识别”页填写 `outputs\resnet18-main\best_model.pth`，上传 JPG、JPEG 或 PNG 图片。在“模型分析”页分别填写评估目录 `outputs\evaluation\resnet18-main`、训练目录 `outputs\resnet18-main` 和对比表 `outputs\evaluation\comparison.csv`。页面会按这三个位置加载指标、混淆矩阵、训练曲线和模型对比，并对缺失的可选产物逐项提示。
 
 ## 7. 测试与代码检查
 

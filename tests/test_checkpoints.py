@@ -80,3 +80,11 @@ def test_reversed_class_order_is_rejected(tmp_path):
 
     with pytest.raises(CheckpointCompatibilityError, match="class order"):
         load_checkpoint(path, expected_classes=tuple(reversed(CLASS_IDS)))
+
+
+def test_corrupt_checkpoint_is_normalized_to_compatibility_error(tmp_path):
+    path = tmp_path / "corrupt.pth"
+    path.write_bytes(b"not a torch checkpoint")
+
+    with pytest.raises(CheckpointCompatibilityError, match="decoded safely"):
+        load_checkpoint(path)

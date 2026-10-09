@@ -32,6 +32,16 @@ class TinyStagedModel(nn.Module):
         return self.fc(self.layer4(inputs))
 
 
+class FrozenBatchNormModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.backbone = nn.Sequential(nn.Linear(2, 2), nn.BatchNorm1d(2))
+        self.fc = nn.Linear(2, 2)
+
+    def forward(self, inputs):
+        return self.fc(self.backbone(inputs))
+
+
 def _logit_loader():
     logits = torch.tensor(
         [
@@ -69,6 +79,31 @@ def test_evaluation_does_not_create_gradients():
     evaluate_one_epoch(model, loader, nn.CrossEntropyLoss(), torch.device("cpu"))
 
     assert model.anchor.grad is None
+
+
+def test_train_epoch_keeps_frozen_batchnorm_statistics_unchanged():
+    model = FrozenBatchNormModel()
+    for parameter in model.backbone.parameters():
+        parameter.requires_grad = False
+    before = model.backbone[1].running_mean.clone()
+    loader = [
+        (
+            torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+            torch.tensor([0, 1]),
+            ["a", "b"],
+        )
+    ]
+    optimizer = torch.optim.SGD(model.fc.parameters(), lr=0.1)
+
+    train_one_epoch(
+        model,
+        loader,
+        nn.CrossEntropyLoss(),
+        optimizer,
+        torch.device("cpu"),
+    )
+
+    assert torch.equal(model.backbone[1].running_mean, before)
 
 
 def _patch_fit_dependencies(monkeypatch, evaluation_values, stage_events=None):

@@ -102,6 +102,7 @@ def test_complete_cpu_pipeline_writes_loadable_artifacts(tmp_path):
         "confusion_matrix_raw.png",
         "confusion_matrix_normalized.png",
         "errors.csv",
+        "correct_samples.csv",
         "confusion_pairs.csv",
     }.issubset(path.name for path in evaluation_dir.iterdir())
 

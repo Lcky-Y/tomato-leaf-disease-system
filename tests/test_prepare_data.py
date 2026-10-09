@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ from PIL import Image
 from config import CLASS_IDS
 from prepare_data import (
     DuplicateLabelError,
+    ImageRecord,
     InvalidImageError,
     discover_images,
     make_stratified_split,
@@ -69,6 +71,27 @@ def test_duplicate_content_is_kept_in_one_split(tmp_path):
 
     assert len(matching) == 2
     assert len({record.split for record in matching}) == 1
+
+
+def test_grouped_split_uses_all_splits_when_group_sizes_make_it_feasible():
+    records = []
+    for group_index, group_size in enumerate((6, 2, 2)):
+        records.extend(
+            ImageRecord(
+                relative_path=f"group-{group_index}/copy-{copy_index}.png",
+                class_id=CLASS_IDS[0],
+                sha256=f"hash-{group_index}",
+            )
+            for copy_index in range(group_size)
+        )
+
+    split = make_stratified_split(records, (0.70, 0.15, 0.15), seed=42)
+
+    assert Counter(record.split for record in split) == {
+        "train": 6,
+        "val": 2,
+        "test": 2,
+    }
 
 
 def test_every_class_reaches_all_splits_and_is_reproducible(tmp_path):

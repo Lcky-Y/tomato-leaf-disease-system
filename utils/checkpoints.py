@@ -93,7 +93,12 @@ def load_checkpoint(
     expected_classes: tuple[str, ...] | None = None,
     map_location: str | torch.device = "cpu",
 ) -> tuple[dict[str, Tensor], CheckpointMetadata]:
-    payload = torch.load(Path(path), map_location=map_location, weights_only=True)
+    try:
+        payload = torch.load(Path(path), map_location=map_location, weights_only=True)
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        raise CheckpointCompatibilityError("checkpoint could not be decoded safely") from exc
     if not isinstance(payload, dict) or "state_dict" not in payload:
         raise CheckpointCompatibilityError("checkpoint is missing state_dict")
     if "metadata" not in payload:
@@ -109,3 +114,31 @@ def load_checkpoint(
     if expected_classes is not None and metadata.class_ids != expected_classes:
         raise CheckpointCompatibilityError("checkpoint class order mismatch")
     return payload["state_dict"], metadata
+
+
+def load_model_weights(model: nn.Module, state_dict: dict[str, Tensor]) -> None:
+    expected = model.state_dict()
+    missing = sorted(set(expected) - set(state_dict))
+    unexpected = sorted(set(state_dict) - set(expected))
+    wrong_shapes = sorted(
+        key
+        for key in set(expected) & set(state_dict)
+        if tuple(expected[key].shape) != tuple(state_dict[key].shape)
+    )
+    if missing or unexpected or wrong_shapes:
+        details = []
+        if missing:
+            details.append(f"missing keys: {', '.join(missing[:3])}")
+        if unexpected:
+            details.append(f"unexpected keys: {', '.join(unexpected[:3])}")
+        if wrong_shapes:
+            details.append(f"wrong shapes: {', '.join(wrong_shapes[:3])}")
+        raise CheckpointCompatibilityError(
+            "checkpoint weights are incompatible (" + "; ".join(details) + ")"
+        )
+    try:
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as exc:
+        raise CheckpointCompatibilityError(
+            "checkpoint weights are incompatible with the declared model"
+        ) from exc

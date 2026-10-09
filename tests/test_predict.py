@@ -5,8 +5,13 @@ from torch import nn
 
 from config import CLASS_IDS
 from dataset import build_transform
-from predict import InferenceBundle, predict_image
-from utils.checkpoints import CheckpointMetadata
+from models.simple_cnn import SimpleCNN
+from predict import InferenceBundle, load_inference_bundle, predict_image
+from utils.checkpoints import (
+    CheckpointCompatibilityError,
+    CheckpointMetadata,
+    save_checkpoint,
+)
 
 
 class RecordingModel(nn.Module):
@@ -99,3 +104,23 @@ def test_low_confidence_flag_uses_configured_threshold():
 
     assert result.items[0].probability == pytest.approx(0.10)
     assert result.low_confidence is True
+
+
+def test_inference_rejects_reversed_project_class_order(tmp_path):
+    metadata = _metadata()
+    reversed_metadata = CheckpointMetadata(
+        **{**metadata.__dict__, "class_ids": tuple(reversed(CLASS_IDS))}
+    )
+    checkpoint = tmp_path / "reversed.pth"
+    save_checkpoint(checkpoint, SimpleCNN(10), reversed_metadata)
+
+    with pytest.raises(CheckpointCompatibilityError, match="class order"):
+        load_inference_bundle(checkpoint, device="cpu")
+
+
+def test_inference_wraps_incompatible_state_dict(tmp_path):
+    checkpoint = tmp_path / "wrong-state.pth"
+    save_checkpoint(checkpoint, SimpleCNN(9), _metadata())
+
+    with pytest.raises(CheckpointCompatibilityError, match="weights"):
+        load_inference_bundle(checkpoint, device="cpu")

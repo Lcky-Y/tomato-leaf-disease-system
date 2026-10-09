@@ -49,6 +49,7 @@ def train_one_epoch(
     device: torch.device,
 ) -> EpochMetrics:
     model.train()
+    _set_frozen_modules_to_eval(model)
     total_loss = 0.0
     labels_all: list[int] = []
     predictions_all: list[int] = []
@@ -64,6 +65,17 @@ def train_one_epoch(
         labels_all.extend(labels.detach().cpu().tolist())
         predictions_all.extend(logits.detach().argmax(dim=1).cpu().tolist())
     return _epoch_metrics(total_loss, labels_all, predictions_all)
+
+
+def _set_frozen_modules_to_eval(module: nn.Module) -> None:
+    for child in module.children():
+        child_parameters = list(child.parameters())
+        if child_parameters and not any(
+            parameter.requires_grad for parameter in child_parameters
+        ):
+            child.eval()
+        else:
+            _set_frozen_modules_to_eval(child)
 
 
 def evaluate_one_epoch(

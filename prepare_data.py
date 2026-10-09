@@ -115,17 +115,33 @@ def make_stratified_split(
             for _, group in sorted(grouped[class_id].items())
         ]
         rng.shuffle(groups)
+        groups.sort(key=len, reverse=True)
         targets = _target_counts(sum(len(group) for group in groups), ratios)
         counts = [0, 0, 0]
 
-        for group in groups:
-            split_index = max(
-                range(3),
-                key=lambda index: (
-                    targets[index] - counts[index],
-                    ratios[index],
-                    -index,
-                ),
+        for group_position, group in enumerate(groups):
+            candidates = [index for index, target in enumerate(targets) if target > 0]
+            empty_candidates = [index for index in candidates if counts[index] == 0]
+            groups_remaining = len(groups) - group_position
+            if empty_candidates and groups_remaining <= len(empty_candidates):
+                candidates = empty_candidates
+
+            def allocation_score(index: int) -> tuple[float, float, int]:
+                projected = counts.copy()
+                projected[index] += len(group)
+                total_error = sum(
+                    abs(projected[split_index] - targets[split_index])
+                    for split_index in range(3)
+                )
+                return (
+                    total_error,
+                    -(targets[index] - counts[index]),
+                    index,
+                )
+
+            split_index = min(
+                candidates,
+                key=allocation_score,
             )
             split_name = SPLIT_NAMES[split_index]
             counts[split_index] += len(group)

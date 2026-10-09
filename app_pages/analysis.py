@@ -9,11 +9,27 @@ with st.sidebar:
     output_text = st.text_input(
         "评估结果目录",
         value="outputs/evaluation/resnet18-main",
-        help="目录内可包含 metrics.json、comparison.csv、曲线、混淆矩阵和 errors.csv。",
+        help="目录内包含 metrics.json、混淆矩阵和 errors.csv。",
         key="analysis_output_dir",
     )
+    training_text = st.text_input(
+        "训练结果目录",
+        value="outputs/resnet18-main",
+        help="目录内可包含 training_curves.png。",
+        key="analysis_training_dir",
+    )
+    comparison_text = st.text_input(
+        "模型对比表",
+        value="outputs/evaluation/comparison.csv",
+        help="由 compare_runs 生成的 comparison.csv。",
+        key="analysis_comparison_path",
+    )
 
-artifacts = load_analysis_artifacts(Path(output_text))
+artifacts = load_analysis_artifacts(
+    Path(output_text),
+    training_dir=Path(training_text),
+    comparison_path=Path(comparison_text),
+)
 
 if artifacts.metrics is not None:
     metrics = artifacts.metrics
@@ -21,8 +37,8 @@ if artifacts.metrics is not None:
         st.metric("Accuracy", f"{float(metrics.get('accuracy', 0)):.2%}", border=True)
         st.metric("Macro-F1", f"{float(metrics.get('macro_f1', 0)):.2%}", border=True)
         st.metric(
-            "单图延迟",
-            f"{float(metrics.get('latency_ms_per_image', 0)):.1f} ms",
+            "CPU 单图延迟",
+            f"{float(metrics.get('cpu_latency_ms_per_image', metrics.get('latency_ms_per_image', 0))):.1f} ms",
             border=True,
         )
         st.metric("运行设备", str(metrics.get("device", "未知")), border=True)

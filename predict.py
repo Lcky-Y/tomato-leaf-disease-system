@@ -12,10 +12,15 @@ import torch
 from PIL import Image
 from torch import nn
 
-from config import CLASS_NAMES_CN
+from config import CLASS_IDS, CLASS_NAMES_CN
 from dataset import build_transform
-from models import build_model
-from utils.checkpoints import CheckpointCompatibilityError, CheckpointMetadata, load_checkpoint
+from models import VALID_MODEL_NAMES, build_model
+from utils.checkpoints import (
+    CheckpointCompatibilityError,
+    CheckpointMetadata,
+    load_checkpoint,
+    load_model_weights,
+)
 
 
 @dataclass(frozen=True)
@@ -53,11 +58,14 @@ def load_inference_bundle(
     device: str = "auto",
 ) -> InferenceBundle:
     resolved_device = _resolve_device(device)
-    state_dict, metadata = load_checkpoint(checkpoint_path, map_location=resolved_device)
-    unknown = [class_id for class_id in metadata.class_ids if class_id not in CLASS_NAMES_CN]
-    if unknown:
+    state_dict, metadata = load_checkpoint(
+        checkpoint_path,
+        expected_classes=CLASS_IDS,
+        map_location=resolved_device,
+    )
+    if metadata.model_name not in VALID_MODEL_NAMES:
         raise CheckpointCompatibilityError(
-            f"checkpoint contains unknown class identifiers: {', '.join(unknown)}"
+            f"checkpoint declares unsupported model: {metadata.model_name}"
         )
     try:
         mean = metadata.normalization["mean"]
@@ -71,7 +79,7 @@ def load_inference_bundle(
         num_classes=len(metadata.class_ids),
         pretrained=False,
     ).to(resolved_device)
-    model.load_state_dict(state_dict)
+    load_model_weights(model, state_dict)
     model.eval()
     return InferenceBundle(
         model=model,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import time
 from dataclasses import dataclass
@@ -26,10 +27,14 @@ from sklearn.metrics import (
 from torch import nn
 from torch.utils.data import DataLoader
 
-from config import DataConfig
+from config import CLASS_IDS, DataConfig
 from dataset import TomatoDataset, build_transform
-from models import build_model
-from utils.checkpoints import load_checkpoint
+from models import VALID_MODEL_NAMES, build_model
+from utils.checkpoints import (
+    CheckpointCompatibilityError,
+    load_checkpoint,
+    load_model_weights,
+)
 from utils.reporting import atomic_write_json
 
 
@@ -95,6 +100,51 @@ def collect_predictions(
         elapsed_ms=elapsed_ms,
         device=str(device),
     )
+
+
+def measure_single_image_latency(
+    model: nn.Module,
+    image_size: int,
+    device: torch.device,
+    warmup: int = 3,
+    runs: int = 20,
+) -> float:
+    if warmup < 0 or runs < 1:
+        raise ValueError("warmup must be non-negative and runs must be positive")
+    model.eval()
+    sample = torch.zeros(1, 3, image_size, image_size, device=device)
+    with torch.no_grad():
+        for _ in range(warmup):
+            model(sample)
+        _synchronize(device)
+        started = time.perf_counter()
+        for _ in range(runs):
+            model(sample)
+        _synchronize(device)
+    return (time.perf_counter() - started) * 1000 / runs
+
+
+def test_split_identity(data_config: DataConfig) -> tuple[str, int]:
+    with Path(data_config.manifest_path).open(
+        "r", encoding="utf-8", newline=""
+    ) as stream:
+        reader = csv.DictReader(stream)
+        required = {"relative_path", "class_id", "sha256", "split"}
+        if not reader.fieldnames or not required.issubset(reader.fieldnames):
+            raise ValueError("manifest is missing fields required for test identity")
+        rows = sorted(
+            (
+                row["relative_path"],
+                row["class_id"],
+                row["sha256"],
+            )
+            for row in reader
+            if row["split"] == "test"
+        )
+    digest = hashlib.sha256(
+        json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return digest, len(rows)
 
 
 def compute_classification_metrics(
@@ -212,6 +262,30 @@ def _write_error_artifacts(
         writer.writeheader()
         writer.writerows(errors)
 
+    correct = [
+        {
+            "path": path,
+            "class_id": class_ids[true_index],
+            "confidence": confidence,
+        }
+        for path, true_index, predicted_index, confidence in zip(
+            table.paths,
+            table.true_indices,
+            table.predicted_indices,
+            table.confidences,
+        )
+        if true_index == predicted_index
+    ]
+    correct.sort(key=lambda row: (-float(row["confidence"]), str(row["path"])))
+    with (output_dir / "correct_samples.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as stream:
+        writer = csv.DictWriter(
+            stream, fieldnames=("path", "class_id", "confidence")
+        )
+        writer.writeheader()
+        writer.writerows(correct)
+
     pair_counts: dict[tuple[str, str], int] = {}
     for error in errors:
         pair = (str(error["true_class"]), str(error["predicted_class"]))
@@ -253,16 +327,43 @@ def evaluate_checkpoint(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     resolved_device = _resolve_device(device)
-    state_dict, metadata = load_checkpoint(checkpoint_path, map_location=resolved_device)
+    state_dict, metadata = load_checkpoint(
+        checkpoint_path,
+        expected_classes=CLASS_IDS,
+        map_location=resolved_device,
+    )
+    if metadata.model_name not in VALID_MODEL_NAMES:
+        raise CheckpointCompatibilityError(
+            f"checkpoint declares unsupported model: {metadata.model_name}"
+        )
     model = build_model(
         metadata.model_name, len(metadata.class_ids), pretrained=False
     ).to(resolved_device)
-    model.load_state_dict(state_dict)
+    load_model_weights(model, state_dict)
     mean = metadata.normalization["mean"]
     std = metadata.normalization["std"]
     loader = build_test_loader(data_config, metadata.image_size, mean, std)
     table = collect_predictions(model, loader, resolved_device)
     metrics = compute_classification_metrics(table, metadata.class_ids)
+    split_fingerprint, test_sample_count = test_split_identity(data_config)
+
+    if resolved_device.type == "cpu":
+        cpu_model = model
+    else:
+        cpu_model = build_model(
+            metadata.model_name, len(metadata.class_ids), pretrained=False
+        ).to(torch.device("cpu"))
+        load_model_weights(cpu_model, state_dict)
+    cpu_latency = measure_single_image_latency(
+        cpu_model,
+        metadata.image_size,
+        torch.device("cpu"),
+    )
+    gpu_latency = (
+        measure_single_image_latency(model, metadata.image_size, resolved_device)
+        if resolved_device.type == "cuda"
+        else None
+    )
 
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     payload = {
@@ -270,8 +371,13 @@ def evaluate_checkpoint(
         **metrics,
         "parameter_count": parameter_count,
         "checkpoint_bytes": Path(checkpoint_path).stat().st_size,
-        "latency_ms_per_image": table.elapsed_ms / len(table.paths),
+        "latency_ms_per_image": cpu_latency,
+        "cpu_latency_ms_per_image": cpu_latency,
+        "gpu_latency_ms_per_image": gpu_latency,
+        "evaluation_forward_ms": table.elapsed_ms,
         "device": table.device,
+        "test_split_fingerprint": split_fingerprint,
+        "test_sample_count": test_sample_count,
     }
     metrics_path = output_dir / "metrics.json"
     atomic_write_json(metrics_path, payload)
@@ -295,15 +401,29 @@ COMPARISON_COLUMNS = (
     "parameter_count",
     "checkpoint_bytes",
     "latency_ms_per_image",
+    "cpu_latency_ms_per_image",
+    "gpu_latency_ms_per_image",
     "device",
+    "test_split_fingerprint",
+    "test_sample_count",
 )
 
 
 def compare_runs(metric_paths: Sequence[Path], output_csv: Path) -> None:
     rows = []
+    identities: set[tuple[object, object]] = set()
     for path in metric_paths:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        identity = (
+            payload.get("test_split_fingerprint"),
+            payload.get("test_sample_count"),
+        )
+        if None in identity:
+            raise ValueError("metrics must identify the test split before comparison")
+        identities.add(identity)
         rows.append({column: payload[column] for column in COMPARISON_COLUMNS})
+    if len(identities) != 1:
+        raise ValueError("models must use the same test split for comparison")
     output_csv = Path(output_csv)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     with output_csv.open("w", encoding="utf-8", newline="") as stream:

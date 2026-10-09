@@ -63,3 +63,27 @@ def test_available_analysis_file_loads_without_requiring_the_others(tmp_path):
     assert artifacts.metrics == {"model_name": "resnet18", "macro_f1": 0.8}
     assert artifacts.comparison is None
     assert artifacts.confusion_matrix is None
+
+
+def test_analysis_artifacts_can_come_from_documented_separate_locations(tmp_path):
+    evaluation_dir = tmp_path / "evaluation"
+    training_dir = tmp_path / "training"
+    comparison_path = tmp_path / "comparison.csv"
+    evaluation_dir.mkdir()
+    training_dir.mkdir()
+    (evaluation_dir / "metrics.json").write_text(
+        json.dumps({"model_name": "resnet18"}), encoding="utf-8"
+    )
+    (training_dir / "training_curves.png").write_bytes(b"png")
+    comparison_path.write_text("model_name,macro_f1\nresnet18,0.8\n", encoding="utf-8")
+
+    artifacts = load_analysis_artifacts(
+        evaluation_dir,
+        training_dir=training_dir,
+        comparison_path=comparison_path,
+    )
+
+    assert artifacts.metrics == {"model_name": "resnet18"}
+    assert artifacts.training_curve == training_dir / "training_curves.png"
+    assert artifacts.comparison is not None
+    assert artifacts.comparison.iloc[0]["model_name"] == "resnet18"

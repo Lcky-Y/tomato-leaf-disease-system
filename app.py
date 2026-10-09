@@ -60,11 +60,20 @@ def low_confidence_message(low_confidence: bool) -> str | None:
     return None
 
 
-def load_analysis_artifacts(output_dir: Path) -> AnalysisArtifacts:
+def load_analysis_artifacts(
+    output_dir: Path,
+    training_dir: Path | None = None,
+    comparison_path: Path | None = None,
+) -> AnalysisArtifacts:
     output_dir = Path(output_dir)
+    training_dir = Path(training_dir) if training_dir is not None else output_dir
+    comparison_path = (
+        Path(comparison_path)
+        if comparison_path is not None
+        else output_dir / "comparison.csv"
+    )
     metrics_path = output_dir / "metrics.json"
-    comparison_path = output_dir / "comparison.csv"
-    training_curve = output_dir / "training_curves.png"
+    training_curve = training_dir / "training_curves.png"
     confusion_matrix = output_dir / "confusion_matrix_normalized.png"
     errors_path = output_dir / "errors.csv"
     return AnalysisArtifacts(
